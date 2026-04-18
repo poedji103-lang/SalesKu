@@ -2917,24 +2917,26 @@ const PaymentModal = ({ isOpen, onClose, plan, onComplete }: { isOpen: boolean, 
       
       if (!response.ok) {
         let errorMessage = `Server Error: ${response.status}`;
+        const responseText = await response.text();
+        
         try {
-          const errData = await response.json();
+          const errData = JSON.parse(responseText);
           errorMessage = errData.error || errorMessage;
         } catch (parseError) {
           // If response is not JSON, might be HTML error from Vercel
-          const text = await response.text();
-          if (text.includes('<!DOCTYPE html>')) {
+          if (responseText.includes('<!DOCTYPE html>')) {
             errorMessage = "Server Vercel mengirimkan halaman HTML, kemungkinan ada kesalahan konfigurasi route atau server crash.";
           } else {
-            errorMessage = text.slice(0, 100) || errorMessage;
+            errorMessage = responseText.slice(0, 100) || errorMessage;
           }
         }
         throw new Error(errorMessage);
       }
 
+      const responseText = await response.text();
       let data;
       try {
-        data = await response.json();
+        data = JSON.parse(responseText);
       } catch (parseError) {
         throw new Error("Gagal mengurai respon dari server. Pastikan server berjalan dengan benar.");
       }

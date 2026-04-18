@@ -24,17 +24,16 @@ export async function createApp() {
 
   console.log(`[SalesKu] Initializing Midtrans. Production: ${isProduction}`);
   
-  if (serverKey.startsWith('SB-') && isProduction) {
-    console.warn("[SalesKu] WARNING: Using Sandbox Server Key with MIDTRANS_IS_PRODUCTION=true. This will likely fail.");
-  } else if (!serverKey.startsWith('SB-') && !isProduction && serverKey !== 'YOUR_SERVER_KEY') {
-    console.warn("[SalesKu] WARNING: Using Production Server Key with MIDTRANS_IS_PRODUCTION=false. This will likely fail.");
+  let snap: any;
+  try {
+    snap = new midtransClient.Snap({
+      isProduction,
+      serverKey,
+      clientKey
+    });
+  } catch (err) {
+    console.error("[SalesKu] Failed to initialize Midtrans client:", err);
   }
-
-  const snap = new midtransClient.Snap({
-    isProduction,
-    serverKey,
-    clientKey
-  });
 
   // Persistent storage for API keys (Note: Write access to local disk is limited on Vercel functions, better to use DB)
   const CONFIG_PATH = path.join(process.cwd(), 'dynamic_config.json');
@@ -53,6 +52,16 @@ export async function createApp() {
   // API Routes
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
+  });
+
+  // Global Error Handler for API routes
+  app.use("/api", (err: any, req: any, res: any, next: any) => {
+    console.error("[SalesKu API Error]:", err);
+    res.status(500).json({ 
+      error: "Internal Server Error", 
+      message: err.message,
+      stack: process.env.NODE_ENV !== 'production' ? err.stack : undefined 
+    });
   });
 
   // Get Configuration Status
@@ -247,6 +256,10 @@ export async function createApp() {
     };
 
     try {
+      if (!snap) {
+        return res.status(500).json({ error: "Midtrans client tidak terinisialisasi. Periksa kuncinya di Vercel." });
+      }
+
       if (!process.env.MIDTRANS_SERVER_KEY || process.env.MIDTRANS_SERVER_KEY === 'YOUR_SERVER_KEY') {
         console.warn("[Payment] Warning: MIDTRANS_SERVER_KEY is not set or using placeholder.");
         return res.status(400).json({ error: "MIDTRANS_SERVER_KEY belum dikonfigurasi di Vercel Settings > Environment Variables" });
