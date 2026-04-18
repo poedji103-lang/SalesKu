@@ -306,16 +306,17 @@ export async function createApp() {
 
   const PORT = parseInt(process.env.PORT || "3000");
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
-
   return app;
 }
 
 // Only run port listening if name is main (not imported)
 if (process.argv[1] && (process.argv[1].endsWith('server.ts') || process.argv[1].endsWith('server.js'))) {
-  createApp().catch(err => {
+  createApp().then(app => {
+    const PORT = parseInt(process.env.PORT || "3000");
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  }).catch(err => {
     console.error("Failed to start server:", err);
     process.exit(1);
   });
