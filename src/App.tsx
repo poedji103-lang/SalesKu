@@ -114,6 +114,19 @@ import {
   orderBy
 } from 'firebase/firestore';
 
+declare global {
+  interface Window {
+    snap: {
+      pay: (token: string, options: {
+        onSuccess: (result: any) => void;
+        onPending: (result: any) => void;
+        onError: (result: any) => void;
+        onClose: () => void;
+      }) => void;
+    };
+  }
+}
+
 // --- Mock Data ---
 const analyticsData = [
   { name: 'Jan', reach: 4000, conv: 2400 },
@@ -2569,7 +2582,7 @@ const PortfolioView = () => {
   );
 };
 
-const LandingPage = ({ onGetStarted, onLogin, error, settings }: { onGetStarted: () => void, onLogin: () => void, error: string | null, settings: any }) => {
+const LandingPage = ({ onSelectPlan, onLogin, error, settings }: { onSelectPlan: (plan: any) => void, onLogin: () => void, error: string | null, settings: any }) => {
   return (
     <div className="min-h-screen bg-white text-slate-900 selection:bg-brand-100">
       {/* Navigation */}
@@ -2758,7 +2771,7 @@ const LandingPage = ({ onGetStarted, onLogin, error, settings }: { onGetStarted:
                 ))}
               </ul>
               <button 
-                onClick={onLogin}
+                onClick={() => onSelectPlan(p)}
                 className={cn(
                   "w-full py-4 rounded-2xl font-bold transition-all",
                   p.popular ? "bg-brand-600 text-white hover:bg-brand-700" : "bg-slate-100 text-slate-900 hover:bg-slate-200"
@@ -2872,12 +2885,71 @@ const PaymentModal = ({ isOpen, onClose, plan, onComplete }: { isOpen: boolean, 
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
 
-  const handlePayment = () => {
+  const handlePayment = async () => {
+    if (loading) return;
+    
+    if (typeof window.snap === 'undefined') {
+      alert("Sistem pembayaran (Midtrans Snap) belum termuat sempurna. Silakan muat ulang halaman (Refresh).");
+      return;
+    }
+
     setLoading(true);
-    setTimeout(() => {
+    try {
+      const priceVal = plan.price || '0';
+      const cleanPriceStr = priceVal.toString().replace(/\./g, '').replace('Rp ', '');
+      const cleanPrice = parseInt(cleanPriceStr);
+      
+      if (cleanPrice === 0) {
+        onComplete();
+        return;
+      }
+      
+      const response = await fetch('/api/payment/create-transaction', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          planId: plan.id || plan.name,
+          amount: cleanPrice,
+          userEmail: auth.currentUser?.email,
+          userName: auth.currentUser?.displayName
+        }),
+      });
+      
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || `Server Error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.token) {
+        window.snap.pay(data.token, {
+          onSuccess: (result: any) => {
+            console.log('Payment success:', result);
+            onComplete();
+          },
+          onPending: (result: any) => {
+            console.log('Payment pending:', result);
+            onClose();
+            alert("Pembayaran Anda sedang kami proses. Status akan diperbarui otomatis.");
+          },
+          onError: (err: any) => {
+            console.error('Payment error:', err);
+            alert("Pembayaran gagal. Silakan periksa limit atau metode pembayaran Anda.");
+          },
+          onClose: () => {
+            console.log('Customer closed the popup without finishing the payment');
+          }
+        });
+      } else {
+        throw new Error(data.error || "Server tidak memberikan token pembayaran.");
+      }
+    } catch (e: any) {
+      console.error("Payment setup error:", e);
+      alert(`Gagal memulai pembayaran: ${e.message}. Pastikan Anda telah memasukkan "MIDTRANS_SERVER_KEY" di menu Settings > Secrets.`);
+    } finally {
       setLoading(false);
-      onComplete();
-    }, 2000);
+    }
   };
 
   if (!isOpen) return null;
@@ -2925,34 +2997,32 @@ const PaymentModal = ({ isOpen, onClose, plan, onComplete }: { isOpen: boolean, 
           </div>
 
           <div className="space-y-4">
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Pilih Metode Pembayaran</p>
-            {[
-              { id: 'qris', name: 'QRIS (OVO, GoPay, Dana)', icon: '📱' },
-              { id: 'va', name: 'Virtual Account (BCA, Mandiri)', icon: '🏦' },
-              { id: 'cc', name: 'Kartu Kredit / Debit', icon: '💳' },
-            ].map(m => (
-              <button 
-                key={m.id}
-                onClick={() => setStep(2)}
-                className="w-full flex items-center justify-between p-4 rounded-2xl border border-slate-100 hover:border-brand-500 hover:bg-brand-50 transition-all group"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="text-xl">{m.icon}</span>
-                  <span className="text-sm font-bold text-slate-700">{m.name}</span>
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Metode Pembayaran</p>
+            <div 
+              onClick={handlePayment}
+              className="w-full flex items-center justify-between p-6 rounded-3xl bg-brand-600 text-white hover:bg-brand-700 transition-all shadow-xl shadow-brand-100 cursor-pointer"
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+                  {loading ? <Loader2 className="animate-spin" size={20} /> : <CreditCard size={20} />}
                 </div>
-                <ChevronRight size={18} className="text-slate-300 group-hover:text-brand-500" />
-              </button>
-            ))}
+                <div className="text-left">
+                  <span className="text-sm font-bold block leading-none mb-1">Bayar Sekarang</span>
+                  <span className="text-[10px] opacity-70">QRIS, VA, E-Wallet, Kartu Kredit</span>
+                </div>
+              </div>
+              <ArrowRight size={20} />
+            </div>
           </div>
 
           <div className="mt-8 flex items-center gap-2 text-[10px] text-slate-400 justify-center">
             <ShieldCheck size={14} />
-            <span>Pembayaran Aman & Terenkripsi oleh SalesKuPay</span>
+            <span>Pembayaran Aman & Terenkripsi oleh Midtrans Snap</span>
           </div>
         </div>
 
         {step === 2 && (
-          <div className="absolute inset-0 bg-white p-8 flex flex-col items-center justify-center text-center">
+          <div className="hidden absolute inset-0 bg-white p-8 flex flex-col items-center justify-center text-center">
             <div className="w-20 h-20 bg-brand-50 text-brand-600 rounded-full flex items-center justify-center mb-6">
               <CreditCard size={40} />
             </div>
@@ -5236,6 +5306,15 @@ export default function App() {
   }, [appSettings.vvipEmails]);
 
   useEffect(() => {
+    if (currentUser && sessionStorage.getItem('pending_plan')) {
+      const plan = JSON.parse(sessionStorage.getItem('pending_plan') || '{}');
+      setSelectedPlan(plan);
+      setIsPaymentOpen(true);
+      sessionStorage.removeItem('pending_plan');
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
     const handleLocationChange = () => {
       if (window.location.pathname === '/privacy') {
         setActiveTab('privacy');
@@ -5264,8 +5343,10 @@ export default function App() {
         setLoginError('Jendela login ditutup sebelum selesai. Silakan coba lagi.');
       } else if (error.code === 'auth/cancelled-popup-request') {
         // Ignore duplicate requests
+      } else if (error.code === 'auth/unauthorized-domain') {
+        setLoginError('Domain ini belum diizinkan di Firebase. Silakan tambahkan domain vercel.app Anda ke "Authorized Domains" di Firebase Console Anda.');
       } else {
-        setLoginError('Gagal masuk. Pastikan koneksi internet Anda stabil.');
+        setLoginError('Gagal masuk. Pastikan koneksi internet Anda stabil atau domain sudah diizinkan di Firebase.');
         console.error("Login Error:", error);
       }
     }
@@ -5292,24 +5373,30 @@ export default function App() {
     setNotifications(prev => [newNotif, ...prev]);
   };
 
-  const handleGetStarted = () => {
-    setSelectedPlan({ name: 'Pro', price: '75.000' });
-    setIsPaymentOpen(true);
+  const handleSelectPlan = (plan: any) => {
+    setSelectedPlan(plan);
+    if (!currentUser) {
+      sessionStorage.setItem('pending_plan', JSON.stringify(plan));
+      handleLogin();
+    } else {
+      setIsPaymentOpen(true);
+    }
   };
 
   const handlePaymentComplete = async () => {
     if (currentUser) {
       const userRef = doc(db, 'users', currentUser.uid);
       try {
-        await setDoc(userRef, { role: 'pro' }, { merge: true });
-        setUserStatus('pro');
+        const role = selectedPlan.name.toLowerCase();
+        await setDoc(userRef, { role: role }, { merge: true });
+        setUserStatus(role as any);
       } catch (error) {
         handleFirestoreError(error, OperationType.UPDATE, `users/${currentUser.uid}`);
       }
     }
     setIsPaymentOpen(false);
     setIsLanding(false);
-    addNotification('milestone', 'Pembayaran Berhasil!', 'Selamat! Akun Anda kini aktif sebagai paket Pro.');
+    addNotification('milestone', 'Pembayaran Berhasil!', `Selamat! Akun Anda kini aktif sebagai paket ${selectedPlan.name}.`);
   };
 
   const [userGeminiKey, setUserGeminiKey] = useState<string>(() => {
@@ -5585,15 +5672,7 @@ export default function App() {
 
   if (isLanding) {
     return (
-      <>
-        <LandingPage onGetStarted={handleGetStarted} onLogin={handleLogin} error={loginError} settings={appSettings} />
-        <PaymentModal 
-          isOpen={isPaymentOpen} 
-          onClose={() => setIsPaymentOpen(false)} 
-          plan={selectedPlan}
-          onComplete={handlePaymentComplete}
-        />
-      </>
+      <LandingPage onSelectPlan={handleSelectPlan} onLogin={handleLogin} error={loginError} settings={appSettings} />
     );
   }
 
@@ -5601,15 +5680,7 @@ export default function App() {
 
   if (isTrialExpired) {
     return (
-      <>
-        <TrialExpiredView onUpgrade={() => setIsPaymentOpen(true)} />
-        <PaymentModal 
-          isOpen={isPaymentOpen} 
-          onClose={() => setIsPaymentOpen(false)} 
-          plan={selectedPlan}
-          onComplete={handlePaymentComplete}
-        />
-      </>
+      <TrialExpiredView onUpgrade={() => handleSelectPlan({ name: 'Pro', price: appSettings.proPrice })} />
     );
   }
 
@@ -5641,6 +5712,12 @@ export default function App() {
             onSwitchTab={setActiveTab}
           />
         )}
+        <PaymentModal 
+          isOpen={isPaymentOpen} 
+          onClose={() => setIsPaymentOpen(false)} 
+          plan={selectedPlan}
+          onComplete={handlePaymentComplete}
+        />
       </AnimatePresence>
       
       {/* Sidebar - Desktop */}
@@ -5777,7 +5854,7 @@ export default function App() {
           <div className="bg-amber-500 text-white px-4 py-2 text-center text-xs font-bold flex items-center justify-center gap-4">
             <span>Masa Trial Anda akan berakhir dalam 29 hari.</span>
             <button 
-              onClick={() => setActiveTab('settings')}
+              onClick={() => handleSelectPlan({ name: 'Pro', price: appSettings.proPrice })}
               className="bg-white text-amber-600 px-3 py-1 rounded-full hover:bg-amber-50 transition-colors"
             >
               Upgrade Sekarang
@@ -5966,7 +6043,7 @@ export default function App() {
                         <h3 className="text-xl font-bold mb-2">Fitur Terbatas</h3>
                         <p className="text-sm text-slate-500 mb-6">SEO Tools hanya tersedia untuk paket Pro dan Enterprise. Upgrade sekarang untuk akses penuh.</p>
                         <button 
-                          onClick={() => setIsPaymentOpen(true)}
+                          onClick={() => handleSelectPlan({ name: 'Pro', price: appSettings.proPrice })}
                           className="w-full bg-brand-600 text-white py-3 rounded-xl font-bold hover:bg-brand-700 transition-all"
                         >
                           Upgrade ke Pro

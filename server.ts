@@ -4,20 +4,27 @@ import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import fs from "fs";
+import midtransClient from "midtrans-client";
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-async function startServer() {
+export async function createApp() {
   const app = express();
-  const PORT = 3000;
 
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-  // Persistent storage for API keys
+  // Initialize Midtrans Snap client
+  const snap = new midtransClient.Snap({
+    isProduction: process.env.MIDTRANS_IS_PRODUCTION === 'true',
+    serverKey: process.env.MIDTRANS_SERVER_KEY || 'YOUR_SERVER_KEY',
+    clientKey: process.env.MIDTRANS_CLIENT_KEY || 'YOUR_CLIENT_KEY'
+  });
+
+  // Persistent storage for API keys (Note: Write access to local disk is limited on Vercel functions, better to use DB)
   const CONFIG_PATH = path.join(process.cwd(), 'dynamic_config.json');
   let dynamicApiKeys: Record<string, { clientId: string, clientSecret: string }> = {};
 
@@ -26,7 +33,6 @@ async function startServer() {
     try {
       const data = fs.readFileSync(CONFIG_PATH, 'utf8');
       dynamicApiKeys = JSON.parse(data);
-      console.log("[SalesKu] Loaded dynamic API keys from disk");
     } catch (err) {
       console.error("[SalesKu] Failed to load dynamic config:", err);
     }
@@ -196,6 +202,93 @@ async function startServer() {
     }, 1500);
   });
 
+  // --- MIDTRANS PAYMENT API ---
+
+  // Create Transaction (Snap Token)
+  app.post("/api/payment/create-transaction", async (req, res) => {
+    const { planId, amount, userEmail, userName } = req.body;
+
+    if (!planId || !amount) {
+      return res.status(400).json({ error: "Missing plan or amount" });
+    }
+
+    const orderId = `ORD-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+    const parameter = {
+      "transaction_details": {
+        "order_id": orderId,
+        "gross_amount": amount
+      },
+      "credit_card": {
+        "secure": true
+      },
+      "customer_details": {
+        "first_name": userName || "Customer",
+        "email": userEmail || "customer@example.com"
+      },
+      "item_details": [{
+        "id": planId,
+        "price": amount,
+        "quantity": 1,
+        "name": `SalesKu ${planId} Plan`
+      }]
+    };
+
+    try {
+      if (!process.env.MIDTRANS_SERVER_KEY || process.env.MIDTRANS_SERVER_KEY === 'YOUR_SERVER_KEY') {
+        console.warn("[Payment] Warning: MIDTRANS_SERVER_KEY is not set or using placeholder.");
+        return res.status(400).json({ error: "MIDTRANS_SERVER_KEY belum dikonfigurasi di Settings > Secrets" });
+      }
+      
+      const transaction = await snap.createTransaction(parameter);
+      console.log(`[Payment] Created transaction ${orderId} for ${userEmail}`);
+      res.json({
+        token: transaction.token,
+        redirect_url: transaction.redirect_url,
+        order_id: orderId
+      });
+    } catch (e: any) {
+      console.error("[Payment] Midtrans Error:", e.message);
+      res.status(500).json({ error: "Failed to create payment transaction" });
+    }
+  });
+
+  // Midtrans Notification Webhook
+  app.post("/api/payment/webhook", async (req, res) => {
+    const notification = req.body;
+
+    try {
+      const statusResponse = await snap.transaction.notification(notification);
+      const orderId = statusResponse.order_id;
+      const transactionStatus = statusResponse.transaction_status;
+      const fraudStatus = statusResponse.fraud_status;
+
+      console.log(`[Webhook] Payment Notification received for ${orderId}: status=${transactionStatus}, fraud=${fraudStatus}`);
+
+      if (transactionStatus == 'capture') {
+        if (fraudStatus == 'challenge') {
+          // TODO: handle fraud challenge
+        } else if (fraudStatus == 'accept') {
+          // TODO: Update user's plan in Firestore to 'paid'
+          console.log(`[Webhook] Success! Order ${orderId} is paid.`);
+        }
+      } else if (transactionStatus == 'settlement') {
+        // TODO: Update user's plan in Firestore to 'paid'
+        console.log(`[Webhook] Success! Order ${orderId} is settled.`);
+      } else if (transactionStatus == 'cancel' || transactionStatus == 'deny' || transactionStatus == 'expire') {
+        // TODO: Handle failure
+        console.log(`[Webhook] Payment failed or expired for ${orderId}`);
+      } else if (transactionStatus == 'pending') {
+        // TODO: Handle pending
+      }
+
+      res.status(200).send('OK');
+    } catch (e: any) {
+      console.error("[Webhook] Error processing Midtrans notification:", e.message);
+      res.status(500).send('Error');
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
@@ -211,12 +304,19 @@ async function startServer() {
     });
   }
 
+  const PORT = parseInt(process.env.PORT || "3000");
+
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
+
+  return app;
 }
 
-startServer().catch(err => {
-  console.error("Failed to start server:", err);
-  process.exit(1);
-});
+// Only run port listening if name is main (not imported)
+if (process.argv[1] && (process.argv[1].endsWith('server.ts') || process.argv[1].endsWith('server.js'))) {
+  createApp().catch(err => {
+    console.error("Failed to start server:", err);
+    process.exit(1);
+  });
+}
