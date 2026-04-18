@@ -18,10 +18,22 @@ export async function createApp() {
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
   // Initialize Midtrans Snap client
+  const isProduction = process.env.MIDTRANS_IS_PRODUCTION === 'true';
+  const serverKey = process.env.MIDTRANS_SERVER_KEY || 'YOUR_SERVER_KEY';
+  const clientKey = process.env.MIDTRANS_CLIENT_KEY || 'YOUR_CLIENT_KEY';
+
+  console.log(`[SalesKu] Initializing Midtrans. Production: ${isProduction}`);
+  
+  if (serverKey.startsWith('SB-') && isProduction) {
+    console.warn("[SalesKu] WARNING: Using Sandbox Server Key with MIDTRANS_IS_PRODUCTION=true. This will likely fail.");
+  } else if (!serverKey.startsWith('SB-') && !isProduction && serverKey !== 'YOUR_SERVER_KEY') {
+    console.warn("[SalesKu] WARNING: Using Production Server Key with MIDTRANS_IS_PRODUCTION=false. This will likely fail.");
+  }
+
   const snap = new midtransClient.Snap({
-    isProduction: process.env.MIDTRANS_IS_PRODUCTION === 'true',
-    serverKey: process.env.MIDTRANS_SERVER_KEY || 'YOUR_SERVER_KEY',
-    clientKey: process.env.MIDTRANS_CLIENT_KEY || 'YOUR_CLIENT_KEY'
+    isProduction,
+    serverKey,
+    clientKey
   });
 
   // Persistent storage for API keys (Note: Write access to local disk is limited on Vercel functions, better to use DB)
@@ -237,7 +249,7 @@ export async function createApp() {
     try {
       if (!process.env.MIDTRANS_SERVER_KEY || process.env.MIDTRANS_SERVER_KEY === 'YOUR_SERVER_KEY') {
         console.warn("[Payment] Warning: MIDTRANS_SERVER_KEY is not set or using placeholder.");
-        return res.status(400).json({ error: "MIDTRANS_SERVER_KEY belum dikonfigurasi di Settings > Secrets" });
+        return res.status(400).json({ error: "MIDTRANS_SERVER_KEY belum dikonfigurasi di Vercel Settings > Environment Variables" });
       }
       
       const transaction = await snap.createTransaction(parameter);
@@ -248,8 +260,13 @@ export async function createApp() {
         order_id: orderId
       });
     } catch (e: any) {
-      console.error("[Payment] Midtrans Error:", e.message);
-      res.status(500).json({ error: "Failed to create payment transaction" });
+      console.error("[Payment] Midtrans Error Details:", e);
+      // Midtrans error object structure check
+      const errorMessage = e.ApiResponse?.error_messages?.[0] || e.message || "Failed to create payment transaction";
+      res.status(500).json({ 
+        error: `Midtrans Error: ${errorMessage}`,
+        details: process.env.NODE_ENV !== 'production' ? e.ApiResponse : undefined
+      });
     }
   });
 

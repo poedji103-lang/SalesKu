@@ -2916,11 +2916,28 @@ const PaymentModal = ({ isOpen, onClose, plan, onComplete }: { isOpen: boolean, 
       });
       
       if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || `Server Error: ${response.status}`);
+        let errorMessage = `Server Error: ${response.status}`;
+        try {
+          const errData = await response.json();
+          errorMessage = errData.error || errorMessage;
+        } catch (parseError) {
+          // If response is not JSON, might be HTML error from Vercel
+          const text = await response.text();
+          if (text.includes('<!DOCTYPE html>')) {
+            errorMessage = "Server Vercel mengirimkan halaman HTML, kemungkinan ada kesalahan konfigurasi route atau server crash.";
+          } else {
+            errorMessage = text.slice(0, 100) || errorMessage;
+          }
+        }
+        throw new Error(errorMessage);
       }
 
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (parseError) {
+        throw new Error("Gagal mengurai respon dari server. Pastikan server berjalan dengan benar.");
+      }
       
       if (data.token) {
         window.snap.pay(data.token, {
