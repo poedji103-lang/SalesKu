@@ -1,0 +1,80 @@
+{
+  "entities": {
+    "users": {
+      "title": "User",
+      "description": "User profile and subscription data",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["user", "trial", "pro", "enterprise", "admin"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "trialEndsAt": { "type": "string", "format": "date-time" },
+        "businessName": { "type": "string" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "contacts": {
+      "title": "Contact",
+      "description": "CRM Contact",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "description": "UID of the owner" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "company": { "type": "string" },
+        "status": { "type": "string" },
+        "segment": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "settings": {
+      "title": "App Settings",
+      "description": "Global application configuration",
+      "type": "object",
+      "properties": {
+        "branding": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "logoUrl": { "type": "string" },
+            "primaryColor": { "type": "string" }
+          }
+        },
+        "oauth": {
+          "type": "object",
+          "properties": {
+            "facebook": { "type": "object" },
+            "instagram": { "type": "object" },
+            "twitter": { "type": "object" },
+            "linkedin": { "type": "object" },
+            "tiktok": { "type": "object" }
+          }
+        },
+        "landingPage": {
+          "type": "object",
+          "properties": {
+            "heroImage": { "type": "string" },
+            "discountCode": { "type": "string" },
+            "discountValue": { "type": "number" }
+          }
+        }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "users",
+      "description": "User profile documents"
+    },
+    "/contacts/{contactId}": {
+      "schema": "contacts",
+      "description": "CRM contacts scoped by ownerId"
+    },
+    "/settings/{settingId}": {
+      "schema": "settings",
+      "description": "App settings (global or secrets)"
+    }
+  }
+}

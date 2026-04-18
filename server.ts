@@ -1,0 +1,222 @@
+import express from "express";
+import { createServer as createViteServer } from "vite";
+import path from "path";
+import { fileURLToPath } from "url";
+import dotenv from "dotenv";
+import fs from "fs";
+
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+async function startServer() {
+  const app = express();
+  const PORT = 3000;
+
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+  // Persistent storage for API keys
+  const CONFIG_PATH = path.join(process.cwd(), 'dynamic_config.json');
+  let dynamicApiKeys: Record<string, { clientId: string, clientSecret: string }> = {};
+
+  // Load existing config if available
+  if (fs.existsSync(CONFIG_PATH)) {
+    try {
+      const data = fs.readFileSync(CONFIG_PATH, 'utf8');
+      dynamicApiKeys = JSON.parse(data);
+      console.log("[SalesKu] Loaded dynamic API keys from disk");
+    } catch (err) {
+      console.error("[SalesKu] Failed to load dynamic config:", err);
+    }
+  }
+
+  // API Routes
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok" });
+  });
+
+  // Get Configuration Status
+  app.get("/api/auth/status", (req, res) => {
+    const platforms = ['instagram', 'facebook', 'twitter', 'linkedin', 'tiktok'];
+    const status: Record<string, boolean> = {};
+    
+    console.log("--- Social Auth Status Check ---");
+    console.log("Available Env Vars (Keys only):", Object.keys(process.env).filter(k => k.includes('_ID') || k.includes('_SECRET')));
+
+    platforms.forEach(p => {
+      const prefix = p === 'instagram' ? 'IG' : 
+                    p === 'facebook' ? 'FB' :
+                    p === 'twitter' ? 'TW' :
+                    p === 'linkedin' ? 'LI' :
+                    p === 'tiktok' ? 'TT' : p.toUpperCase();
+      
+      const hasDynamic = !!dynamicApiKeys[p]?.clientId;
+      const hasEnv = !!process.env[`${prefix}_ID`];
+      
+      status[p] = hasDynamic || hasEnv;
+      console.log(`Platform ${p}: dynamic=${hasDynamic}, env=${hasEnv} (Key: ${prefix}_ID)`);
+    });
+    
+    res.json(status);
+  });
+
+  // Save API Configuration
+  app.post("/api/auth/config", (req, res) => {
+    const { platform, clientId, clientSecret } = req.body;
+    if (!platform || !clientId || !clientSecret) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+    dynamicApiKeys[platform] = { clientId, clientSecret };
+    
+    // Persist to disk
+    try {
+      fs.writeFileSync(CONFIG_PATH, JSON.stringify(dynamicApiKeys, null, 2));
+      console.log(`[SalesKu] Configured and saved API for ${platform}`);
+    } catch (err) {
+      console.error(`[SalesKu] Failed to save config for ${platform}:`, err);
+    }
+    
+    res.json({ success: true });
+  });
+
+  // OAuth URL Generation
+  app.get("/api/auth/:platform/url", (req, res) => {
+    const { platform } = req.params;
+    
+    // Detect base URL dynamically if not provided in env
+    let baseUrl = process.env.APP_URL;
+    if (!baseUrl) {
+      const host = req.get('host');
+      baseUrl = `https://${host}`;
+    }
+    
+    // Clean up URL: remove trailing slash and ensure https
+    baseUrl = baseUrl.replace(/\/$/, "");
+    if (!baseUrl.startsWith('https://')) {
+      baseUrl = baseUrl.replace(/^http:\/\//, 'https://');
+    }
+
+    const redirectUri = `${baseUrl}/auth/${platform}/callback`;
+    
+    console.log(`Generating OAuth URL for ${platform}. Redirect URI: ${redirectUri}`);
+    
+    let authUrl = "";
+    
+    // Use dynamic keys if available, otherwise fallback to env
+    const platformPrefix = platform === 'instagram' ? 'IG' : 
+                          platform === 'facebook' ? 'FB' :
+                          platform === 'twitter' ? 'TW' :
+                          platform === 'linkedin' ? 'LI' :
+                          platform === 'tiktok' ? 'TT' : platform.toUpperCase();
+
+    const config = dynamicApiKeys[platform] || {
+      clientId: process.env[`${platformPrefix}_ID`] || "",
+      clientSecret: process.env[`${platformPrefix}_SECRET`] || ""
+    };
+
+    const { clientId } = config;
+    
+    console.log(`[OAuth Debug] Platform: ${platform}, ClientID: ${clientId ? 'SET' : 'EMPTY'}, ConfigID: ${process.env.FB_CONFIG_ID ? 'SET' : 'EMPTY'}`);
+
+    if (!clientId) {
+      return res.status(400).json({ error: `API Key for ${platform} not configured` });
+    }
+
+    switch (platform) {
+      case "instagram":
+        // Using Facebook Login for Instagram Graph API
+        authUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=instagram_basic,instagram_content_publish,pages_read_engagement,pages_show_list,business_management,public_profile&response_type=code`;
+        if (process.env.FB_CONFIG_ID) {
+          authUrl += `&config_id=${process.env.FB_CONFIG_ID}`;
+        }
+        break;
+      case "facebook":
+        authUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=pages_manage_posts,pages_read_engagement,pages_show_list,business_management,public_profile&response_type=code`;
+        if (process.env.FB_CONFIG_ID) {
+          authUrl += `&config_id=${process.env.FB_CONFIG_ID}`;
+        }
+        break;
+      case "twitter":
+        authUrl = `https://twitter.com/i/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&scope=tweet.read%20tweet.write%20users.read&response_type=code&code_challenge=challenge&code_challenge_method=plain`;
+        break;
+      case "linkedin":
+        authUrl = `https://www.linkedin.com/oauth/v2/authorization?client_id=${clientId}&redirect_uri=${redirectUri}&scope=w_member_social&response_type=code`;
+        break;
+      case "tiktok":
+        authUrl = `https://www.tiktok.com/v2/auth/authorize/?client_key=${clientId}&scope=user.info.basic,video.upload,video.publish&response_type=code&redirect_uri=${redirectUri}`;
+        break;
+      default:
+        return res.status(400).json({ error: "Invalid platform" });
+    }
+
+    res.json({ url: authUrl });
+  });
+
+  // OAuth Callback Handler
+  app.get("/auth/:platform/callback", (req, res) => {
+    const { platform } = req.params;
+    const { code } = req.query;
+
+    // In a real app, you would exchange the code for tokens here
+    // and store them in a database or session.
+    console.log(`Received ${platform} auth code:`, code);
+
+    res.send(`
+      <html>
+        <body style="font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f8fafc;">
+          <div style="text-align: center; padding: 2rem; background: white; border-radius: 1rem; shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);">
+            <h2 style="color: #0f172a;">Authentication Successful!</h2>
+            <p style="color: #64748b;">Connecting your ${platform} account...</p>
+            <script>
+              if (window.opener) {
+                window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS', platform: '${platform}' }, '*');
+                setTimeout(() => window.close(), 1000);
+              } else {
+                window.location.href = '/';
+              }
+            </script>
+          </div>
+        </body>
+      </html>
+    `);
+  });
+
+  // Social Posting API
+  app.post("/api/social/post", (req, res) => {
+    const { platform, content, mediaUrl } = req.body;
+    
+    // In a real app, you would use the stored tokens to call the platform's API
+    console.log(`Posting to ${platform}:`, content);
+
+    // Simulate API call
+    setTimeout(() => {
+      res.json({ success: true, message: `Successfully posted to ${platform}` });
+    }, 1500);
+  });
+
+  // Vite middleware for development
+  if (process.env.NODE_ENV !== "production") {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: "spa",
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
+}
+
+startServer().catch(err => {
+  console.error("Failed to start server:", err);
+  process.exit(1);
+});

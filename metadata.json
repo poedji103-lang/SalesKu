@@ -1,0 +1,7 @@
+{
+  "name": "SalesKu",
+  "description": "Your personal AI-powered sales and marketing assistant. Manage content, social media, and CRM in one powerful suite.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
