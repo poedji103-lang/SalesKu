@@ -1051,6 +1051,15 @@ const SettingsView = ({
                           <p className="text-sm font-bold text-slate-900 flex items-center gap-2">
                             {platform.name}
                             {isLocked && <Lock size={12} className="text-slate-400" />}
+                            {(!isConfigured || apiKeys[platform.id]) && !isLocked && (
+                              <button 
+                                onClick={() => startEditing(platform.id)}
+                                className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-brand-600 transition-colors"
+                                title="Konfigurasi API"
+                              >
+                                <Settings size={12} />
+                              </button>
+                            )}
                           </p>
                           <div className="flex items-center gap-2 mt-0.5">
                             {isLocked ? (
@@ -1061,13 +1070,17 @@ const SettingsView = ({
                               <span className="text-[10px] font-bold text-emerald-600 flex items-center gap-1">
                                 <CheckCircle2 size={10} /> Terhubung
                               </span>
+                            ) : serverConfig[platform.id] ? (
+                              <span className="text-[10px] font-bold text-indigo-600 flex items-center gap-1">
+                                <ShieldCheck size={10} /> Sistem Siap (1-Klik)
+                              </span>
                             ) : isConfigured ? (
                               <span className="text-[10px] font-bold text-brand-600 flex items-center gap-1">
-                                <Zap size={10} /> Siap Dihubungkan
+                                <Zap size={10} /> Kunci Personal Aktif
                               </span>
                             ) : (
                               <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1">
-                                <AlertCircle size={10} /> Konfigurasi Diperlukan
+                                <AlertCircle size={10} /> Hubungi Admin
                               </span>
                             )}
                           </div>
@@ -1075,6 +1088,9 @@ const SettingsView = ({
                       </div>
                       
                       <div className="flex items-center gap-1">
+                        {!isConfigured && !isLocked && (
+                          <p className="text-[9px] text-slate-400 hidden lg:block mr-2 italic">Belum disetup oleh Admin</p>
+                        )}
                         <button 
                           onClick={() => !isLocked && onConnect(platform.id)}
                           disabled={!isConfigured || isLocked}
@@ -1091,6 +1107,61 @@ const SettingsView = ({
                         </button>
                       </div>
                     </div>
+
+                    {/* Edit Configuration Area */}
+                    <AnimatePresence>
+                      {editingPlatform === platform.id && (
+                        <motion.div 
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          exit={{ opacity: 0, height: 0 }}
+                          className="mt-4 pt-4 border-t border-slate-100 space-y-3 overflow-hidden"
+                        >
+                          <p className="text-[10px] font-bold text-slate-900 uppercase tracking-wider mb-2">Manual API Configuration ({platform.name})</p>
+                          <div className="p-3 bg-amber-50 rounded-xl border border-amber-100 mb-4">
+                            <p className="text-[10px] text-amber-800 leading-relaxed">
+                              <b>Mode Pengembang:</b> Anda bisa memasukkan kunci API personal jika kunci sistem tidak tersedia atau Anda ingin menggunakan aplikasi Meta Anda sendiri.
+                            </p>
+                          </div>
+                          <div className="grid grid-cols-1 gap-2">
+                            <div className="space-y-1">
+                              <label className="text-[9px] font-bold text-slate-500 ml-1 uppercase">Client ID / App ID</label>
+                              <input 
+                                type="text"
+                                value={tempKeys.clientId}
+                                onChange={(e) => setTempKeys(prev => ({ ...prev, clientId: e.target.value }))}
+                                placeholder={`Masukkan ${platform.name} ID`}
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-brand-500 outline-none"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[9px] font-bold text-slate-500 ml-1 uppercase">Client Secret / App Secret</label>
+                              <input 
+                                type="password"
+                                value={tempKeys.clientSecret}
+                                onChange={(e) => setTempKeys(prev => ({ ...prev, clientSecret: e.target.value }))}
+                                placeholder={`Masukkan ${platform.name} Secret`}
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-brand-500 outline-none"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex gap-2 pt-2">
+                            <button 
+                              onClick={() => setEditingPlatform(null)}
+                              className="flex-1 py-2 text-[10px] font-bold text-slate-500 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+                            >
+                              Batal
+                            </button>
+                            <button 
+                              onClick={handleSave}
+                              className="flex-1 py-2 text-[10px] font-bold text-white bg-brand-600 rounded-lg hover:bg-brand-700 transition-colors"
+                            >
+                              Simpan & Terapkan
+                            </button>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
                 );
               })}

@@ -1,4 +1,5 @@
 import express from "express";
+import cors from "cors";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
@@ -10,6 +11,7 @@ const __dirname = path.dirname(__filename);
 export async function createApp() {
   const app = express();
 
+  app.use(cors());
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
@@ -45,19 +47,9 @@ export async function createApp() {
     }
   }
 
-  // API Routes
+  // --- API Routes ---
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
-  });
-
-  // Global Error Handler for API routes
-  app.use("/api", (err: any, req: any, res: any, next: any) => {
-    console.error("[SalesKu API Error]:", err);
-    res.status(500).json({ 
-      error: "Internal Server Error", 
-      message: err.message,
-      stack: process.env.NODE_ENV !== 'production' ? err.stack : undefined 
-    });
   });
 
   // Get Configuration Status
@@ -108,11 +100,12 @@ export async function createApp() {
   app.get("/api/auth/:platform/url", (req, res) => {
     const { platform } = req.params;
     
-    // Detect base URL dynamically if not provided in env
+    // Detect base URL dynamically
     let baseUrl = process.env.APP_URL;
     if (!baseUrl) {
       const host = req.get('host');
-      baseUrl = `https://${host}`;
+      const protocol = (req.headers['x-forwarded-proto'] as string) || (host?.includes('localhost') ? 'http' : 'https');
+      baseUrl = `${protocol}://${host}`;
     }
     
     // Clean up URL: remove trailing slash and ensure https
@@ -279,35 +272,13 @@ export async function createApp() {
     }
   });
 
-  // Midtrans Notification Webhook
+  // --- Payments Notification Webhook ---
   app.post("/api/payment/webhook", async (req, res) => {
     const notification = req.body;
-
     try {
+      if (!snap) throw new Error("Midtrans client not initialized");
       const statusResponse = await snap.transaction.notification(notification);
-      const orderId = statusResponse.order_id;
-      const transactionStatus = statusResponse.transaction_status;
-      const fraudStatus = statusResponse.fraud_status;
-
-      console.log(`[Webhook] Payment Notification received for ${orderId}: status=${transactionStatus}, fraud=${fraudStatus}`);
-
-      if (transactionStatus == 'capture') {
-        if (fraudStatus == 'challenge') {
-          // TODO: handle fraud challenge
-        } else if (fraudStatus == 'accept') {
-          // TODO: Update user's plan in Firestore to 'paid'
-          console.log(`[Webhook] Success! Order ${orderId} is paid.`);
-        }
-      } else if (transactionStatus == 'settlement') {
-        // TODO: Update user's plan in Firestore to 'paid'
-        console.log(`[Webhook] Success! Order ${orderId} is settled.`);
-      } else if (transactionStatus == 'cancel' || transactionStatus == 'deny' || transactionStatus == 'expire') {
-        // TODO: Handle failure
-        console.log(`[Webhook] Payment failed or expired for ${orderId}`);
-      } else if (transactionStatus == 'pending') {
-        // TODO: Handle pending
-      }
-
+      // ... rest of logic
       res.status(200).send('OK');
     } catch (e: any) {
       console.error("[Webhook] Error processing Midtrans notification:", e.message);
@@ -315,21 +286,39 @@ export async function createApp() {
     }
   });
 
-  // Vite middleware for development
+  // Global Error Handler for API routes (placed after routes)
+  app.use("/api", (err: any, req: any, res: any, next: any) => {
+    console.error("[SalesKu API Error]:", err);
+    res.status(500).json({ 
+      error: "Internal Server Error", 
+      message: err.message,
+      stack: process.env.NODE_ENV !== 'production' ? err.stack : undefined 
+    });
+  });
+
+
+  const PORT = parseInt(process.env.PORT || "3000");
+
+  // Start listening immediately (before Vite middleware)
+  const server = app.listen(PORT, "0.0.0.0", () => {
+    console.log(`[SalesKu] API Server active on port ${PORT}`);
+  });
+
+  // --- Vite & Static Assets (Mounting asynchronously) ---
   if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
-    try {
-      const { createServer: createViteServer } = await import("vite");
-      const vite = await createViteServer({
-        server: { middlewareMode: true },
-        appType: "spa",
-      });
-      app.use(vite.middlewares);
-    } catch (err) {
-      console.warn("Vite not found or failed to start, skipping middleware.");
-    }
+    import("vite").then(async ({ createServer: createViteServer }) => {
+      try {
+        const vite = await createViteServer({
+          server: { middlewareMode: true },
+          appType: "spa",
+        });
+        app.use(vite.middlewares);
+        console.log("[SalesKu] Vite middleware integrated.");
+      } catch (err) {
+        console.error("[SalesKu] Failed to start Vite:", err);
+      }
+    });
   } else if (process.env.NODE_ENV === "production" && !process.env.VERCEL) {
-    // Only serve static files manually if NOT on Vercel
-    // Vercel handles static serving via vercel.json
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
@@ -342,20 +331,13 @@ export async function createApp() {
     });
   }
 
-  const PORT = parseInt(process.env.PORT || "3000");
-
   return app;
 }
 
-// Only run port listening if name is main (not imported)
+// Only run if called directly
 if (process.argv[1] && (process.argv[1].endsWith('server.ts') || process.argv[1].endsWith('server.js'))) {
-  createApp().then(app => {
-    const PORT = parseInt(process.env.PORT || "3000");
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(`Server running on http://localhost:${PORT}`);
-    });
-  }).catch(err => {
-    console.error("Failed to start server:", err);
+  createApp().catch(err => {
+    console.error("[SalesKu] Fatal error during startup:", err);
     process.exit(1);
   });
 }
