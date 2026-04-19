@@ -903,10 +903,29 @@ const SettingsView = ({
                     type="password"
                     value={tempGeminiKey}
                     onChange={(e) => setTempGeminiKey(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        const trimmed = tempGeminiKey.trim();
+                        onSaveGeminiKey(trimmed);
+                        setTempGeminiKey(trimmed);
+                        setIsEditingGemini(false);
+                      }
+                    }}
                     placeholder="Masukkan Gemini API Key Anda..."
                     className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-brand-500 outline-none"
+                    autoFocus
                   />
-                  <ShieldCheck size={14} className="absolute right-3 top-3 text-slate-300" />
+                  <button 
+                    onClick={() => {
+                      const trimmed = tempGeminiKey.trim();
+                      onSaveGeminiKey(trimmed);
+                      setTempGeminiKey(trimmed);
+                      setIsEditingGemini(false);
+                    }}
+                    className="absolute right-3 top-2 text-xs font-bold text-brand-600 bg-white"
+                  >
+                    OK
+                  </button>
                 </div>
               ) : (
                 <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-slate-100">
@@ -6092,7 +6111,10 @@ export default function App() {
                   onConnectStore={handleConnectStore}
                   userStatus={userStatus}
                   geminiKey={userGeminiKey}
-                  onSaveGeminiKey={setUserGeminiKey}
+                  onSaveGeminiKey={(key) => {
+                    setUserGeminiKey(key);
+                    addNotification('milestone', 'Konfigurasi AI Diperbarui', 'Gemini API Key Anda telah berhasil disimpan.');
+                  }}
                   forceShowGeminiHelp={settingsShowHelp}
                 />
               )}

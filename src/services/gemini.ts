@@ -1,14 +1,22 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const genAIInstance = (providedKey?: string) => {
-  const key = providedKey || process.env.GEMINI_API_KEY || "";
-  return new GoogleGenerativeAI(key);
+  const key = (providedKey?.trim()) || (typeof process !== 'undefined' && process.env.GEMINI_API_KEY) || "";
+  
+  // Guard against "undefined" string if vite define failed
+  const finalKey = (key === 'undefined' || !key) ? "" : key;
+  
+  if (!finalKey) {
+    console.warn("Gemini API Key is missing. Please provide it in the app settings.");
+  }
+  
+  return new GoogleGenerativeAI(finalKey);
 };
 
 export async function generateMarketingContent(prompt: string, type: string, imageBase64?: string, userApiKey?: string) {
   try {
     const genAI = genAIInstance(userApiKey);
-    const modelName = "gemini-2.0-flash";
+    const modelName = "gemini-1.5-flash"; // More stable default
     let systemInstruction = `You are a world-class digital marketing expert. 
     Generate high-converting ${type} content based on the user's request. 
     
@@ -87,7 +95,7 @@ export async function generateMarketingContent(prompt: string, type: string, ima
 export async function generateAutoCaption(imageBase64: string, userApiKey?: string) {
   try {
     const genAI = genAIInstance(userApiKey);
-    const modelName = "gemini-2.0-flash";
+    const modelName = "gemini-1.5-flash"; // More stable default
     const model = genAI.getGenerativeModel({ model: modelName });
 
     const mimeTypeMatch = imageBase64.match(/^data:([^;]+);base64,/);
