@@ -309,11 +309,6 @@ export async function createApp() {
 
   const PORT = parseInt(process.env.PORT || "3000");
 
-  // Start listening immediately (before Vite middleware)
-  const server = app.listen(PORT, "0.0.0.0", () => {
-    console.log(`[SalesKu] API Server active on port ${PORT}`);
-  });
-
   // --- Vite & Static Assets (Mounting asynchronously) ---
   if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
     import("vite").then(async ({ createServer: createViteServer }) => {
@@ -346,7 +341,12 @@ export async function createApp() {
 
 // Only run if called directly
 if (process.argv[1] && (process.argv[1].endsWith('server.ts') || process.argv[1].endsWith('server.js'))) {
-  createApp().catch(err => {
+  createApp().then(app => {
+    const PORT = parseInt(process.env.PORT || "3000");
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`[SalesKu] API Server listening on port ${PORT}`);
+    });
+  }).catch(err => {
     console.error("[SalesKu] Fatal error during startup:", err);
     process.exit(1);
   });
