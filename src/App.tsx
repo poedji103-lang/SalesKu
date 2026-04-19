@@ -1029,12 +1029,22 @@ const SettingsView = ({
               {/* Diagnostic status bar for Admin debugging */}
               {Object.keys(serverConfig).length > 0 && (
                 <div className="mb-4 p-2 bg-slate-50 border border-slate-200 rounded-xl">
-                  <p className="text-[9px] font-bold text-slate-400 uppercase mb-1 px-1">Integrasi Status (Server):</p>
-                  <div className="flex flex-wrap gap-2 px-1">
-                    {Object.entries(serverConfig).map(([id, ready]) => (
-                      <span key={id} className={cn("text-[8px] font-bold px-1.5 py-0.5 rounded uppercase", ready ? "bg-emerald-100 text-emerald-700 border border-emerald-200" : "bg-slate-200 text-slate-500 border border-slate-300")}>
-                        {id}: {ready ? 'READY' : 'OFF'}
-                      </span>
+                  <div className="flex items-center justify-between mb-1 px-1">
+                    <p className="text-[9px] font-bold text-slate-400 uppercase">Integrasi Status (Server):</p>
+                    <button onClick={() => window.location.reload()} className="text-[8px] font-bold text-brand-600 hover:underline">Refresh</button>
+                  </div>
+                  <div className="flex flex-wrap gap-1 px-1">
+                    {Object.entries(serverConfig).map(([id, info]) => (
+                      <div key={id} className={cn(
+                        "text-[8px] font-bold p-1 rounded border flex flex-col gap-0.5 min-w-[70px]", 
+                        info.ready ? "bg-emerald-50 border-emerald-200" : "bg-slate-100 border-slate-200"
+                      )}>
+                        <span className={cn("uppercase", info.ready ? "text-emerald-700" : "text-slate-600")}>{id}</span>
+                        <div className="flex gap-1">
+                          <span className={info.id ? "text-emerald-600" : "text-rose-500"}>ID:{info.id ? '✓' : '×'}</span>
+                          <span className={info.secret ? "text-emerald-600" : "text-rose-500"}>SEC:{info.secret ? '✓' : '×'}</span>
+                        </div>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -1047,7 +1057,7 @@ const SettingsView = ({
                 { id: 'linkedin', name: 'LinkedIn', icon: Linkedin, color: 'text-blue-700', bg: 'bg-blue-50' },
                 { id: 'tiktok', name: 'TikTok', icon: Music2, color: 'text-slate-900', bg: 'bg-slate-50', isEnterprise: true },
               ].map((platform) => {
-                const isConfigured = !!apiKeys[platform.id]?.clientId || !!serverConfig[platform.id];
+                const isConfigured = !!apiKeys[platform.id]?.clientId || !!serverConfig[platform.id]?.ready;
                 const isConnected = accounts[platform.id];
                 const isLocked = platform.isEnterprise && userStatus !== 'enterprise';
                 
@@ -1084,7 +1094,7 @@ const SettingsView = ({
                               <span className="text-[10px] font-bold text-emerald-600 flex items-center gap-1">
                                 <CheckCircle2 size={10} /> Terhubung
                               </span>
-                            ) : serverConfig[platform.id] ? (
+                            ) : serverConfig[platform.id]?.ready ? (
                               <span className="text-[10px] font-bold text-indigo-600 flex items-center gap-1">
                                 <ShieldCheck size={10} /> Sistem Siap (1-Klik)
                               </span>
@@ -5583,7 +5593,7 @@ export default function App() {
     localStorage.setItem('social_api_keys', JSON.stringify(apiKeys));
   }, [apiKeys]);
 
-  const [serverConfig, setServerConfig] = useState<Record<string, boolean>>({});
+  const [serverConfig, setServerConfig] = useState<Record<string, { ready: boolean, id: boolean, secret: boolean }>>({});
 
   useEffect(() => {
     const checkServerConfig = async (retries = 5) => {

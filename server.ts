@@ -59,31 +59,44 @@ export async function createApp() {
   // Get Configuration Status
   app.get("/api/auth/status", (req, res) => {
     const platforms = ['instagram', 'facebook', 'twitter', 'linkedin', 'tiktok'];
-    const status: Record<string, boolean> = {};
+    const status: Record<string, { ready: boolean; id: boolean; secret: boolean }> = {};
     
     console.log("--- Social Auth Status Check ---");
     const envKeys = Object.keys(process.env);
-    console.log("Available Env Vars (Keys):", envKeys.filter(k => k.includes('_ID') || k.includes('_SECRET')));
-
+    
     platforms.forEach(p => {
-      const prefix = p === 'instagram' ? 'IG' : 
-                    p === 'facebook' ? 'FB' :
-                    p === 'twitter' ? 'TW' :
-                    p === 'linkedin' ? 'LI' :
-                    p === 'tiktok' ? 'TT' : p.toUpperCase();
+      // Possible prefixes
+      const prefixes = [];
+      if (p === 'instagram') prefixes.push('IG', 'INSTAGRAM');
+      else if (p === 'facebook') prefixes.push('FB', 'FACEBOOK');
+      else if (p === 'twitter') prefixes.push('TW', 'TWITTER', 'X');
+      else if (p === 'linkedin') prefixes.push('LI', 'LINKEDIN');
+      else if (p === 'tiktok') prefixes.push('TT', 'TIKTOK');
+      else prefixes.push(p.toUpperCase());
+
+      let hasEnvId = false;
+      let hasEnvSecret = false;
       
-      const envId = process.env[`${prefix}_ID`];
-      const envSecret = process.env[`${prefix}_SECRET`];
+      for (const prefix of prefixes) {
+        if (process.env[`${prefix}_ID`]) hasEnvId = true;
+        if (process.env[`${prefix}_SECRET`]) hasEnvSecret = true;
+        // Also check VITE_ prefix just in case user added them there
+        if (process.env[`VITE_${prefix}_ID`]) hasEnvId = true;
+        if (process.env[`VITE_${prefix}_SECRET`]) hasEnvSecret = true;
+      }
       
-      console.log(`Checking ${p} (${prefix}): ID=${envId ? 'YES' : 'NO'}, Secret=${envSecret ? 'YES' : 'NO'}`);
+      const hasDynamicId = !!dynamicApiKeys[p]?.clientId;
+      const hasDynamicSecret = !!dynamicApiKeys[p]?.clientSecret;
       
-      const hasDynamic = !!dynamicApiKeys[p]?.clientId;
-      const hasEnv = !!(envId && envSecret); // Must have both
+      status[p] = {
+        ready: (hasEnvId || hasDynamicId) && (hasEnvSecret || hasDynamicSecret),
+        id: hasEnvId || hasDynamicId,
+        secret: hasEnvSecret || hasDynamicSecret
+      };
       
-      status[p] = hasDynamic || hasEnv;
+      console.log(`Checking ${p}: ID=${status[p].id}, Secret=${status[p].secret} => Ready: ${status[p].ready}`);
     });
     
-    console.log("Final status map:", status);
     res.json(status);
   });
 
