@@ -62,7 +62,8 @@ export async function createApp() {
     const status: Record<string, boolean> = {};
     
     console.log("--- Social Auth Status Check ---");
-    console.log("Available Env Vars (Keys only):", Object.keys(process.env).filter(k => k.includes('_ID') || k.includes('_SECRET')));
+    const envKeys = Object.keys(process.env);
+    console.log("Available Env Vars (Keys):", envKeys.filter(k => k.includes('_ID') || k.includes('_SECRET')));
 
     platforms.forEach(p => {
       const prefix = p === 'instagram' ? 'IG' : 
@@ -71,13 +72,18 @@ export async function createApp() {
                     p === 'linkedin' ? 'LI' :
                     p === 'tiktok' ? 'TT' : p.toUpperCase();
       
+      const envId = process.env[`${prefix}_ID`];
+      const envSecret = process.env[`${prefix}_SECRET`];
+      
+      console.log(`Checking ${p} (${prefix}): ID=${envId ? 'YES' : 'NO'}, Secret=${envSecret ? 'YES' : 'NO'}`);
+      
       const hasDynamic = !!dynamicApiKeys[p]?.clientId;
-      const hasEnv = !!process.env[`${prefix}_ID`];
+      const hasEnv = !!(envId && envSecret); // Must have both
       
       status[p] = hasDynamic || hasEnv;
-      console.log(`Platform ${p}: dynamic=${hasDynamic}, env=${hasEnv} (Key: ${prefix}_ID)`);
     });
     
+    console.log("Final status map:", status);
     res.json(status);
   });
 

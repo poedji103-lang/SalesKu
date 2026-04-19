@@ -1026,6 +1026,20 @@ const SettingsView = ({
             </div>
             
             <div className="space-y-4">
+              {/* Diagnostic status bar for Admin debugging */}
+              {Object.keys(serverConfig).length > 0 && (
+                <div className="mb-4 p-2 bg-slate-50 border border-slate-200 rounded-xl">
+                  <p className="text-[9px] font-bold text-slate-400 uppercase mb-1 px-1">Integrasi Status (Server):</p>
+                  <div className="flex flex-wrap gap-2 px-1">
+                    {Object.entries(serverConfig).map(([id, ready]) => (
+                      <span key={id} className={cn("text-[8px] font-bold px-1.5 py-0.5 rounded uppercase", ready ? "bg-emerald-100 text-emerald-700 border border-emerald-200" : "bg-slate-200 text-slate-500 border border-slate-300")}>
+                        {id}: {ready ? 'READY' : 'OFF'}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {[
                 { id: 'instagram', name: 'Instagram', icon: Instagram, color: 'text-pink-600', bg: 'bg-pink-50' },
                 { id: 'facebook', name: 'Facebook', icon: Facebook, color: 'text-blue-600', bg: 'bg-blue-50' },
